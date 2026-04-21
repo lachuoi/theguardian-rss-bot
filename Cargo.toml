@@ -1,6 +1,6 @@
 [package]
-name = "wasi-newspenguin-rss-bot"
-author = ["Seungjin Kim <seungjin@duck.com>"]
+name = "newspenguin-rss-bot"
+authors = ["Seungjin Kim <seungjin@duck.com>"]
 version = "0.1.0"
 edition = "2021"
 
@@ -18,7 +18,7 @@ wasi = "0.13.1"
 dotenvy = "0.15.7"
 
 [package.metadata.component]
-package = "component:mastodon-newspenguin-bot"
+package = "component:newspenguin-rss-bot"
 
 [package.metadata.component.target]
 path = "wit"

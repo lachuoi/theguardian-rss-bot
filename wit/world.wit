@@ -1,4 +1,4 @@
-package component:mastodon-newspenguin-bot;
+package component:newspenguin-rss-bot;
 
 world bot {
     include wasi:cli/command@0.2.0;

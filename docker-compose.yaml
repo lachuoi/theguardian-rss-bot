@@ -1,8 +1,8 @@
 version: "3"
 services:
-  mastodon-newspenguin-bot:
-    container_name: "mastodon-newspenguin-bot"
-    image: "mastodon-newspenguin-bot"
+  newspenguin-rss-bot:
+    container_name: "newspenguin-rss-bot"
+    image: "newspenguin-rss-bot"
     env_file: .env
     restart: always
 
