@@ -7,15 +7,15 @@ help:
 
 # Check the project for errors
 check:
-    cargo check --target wasm32-wasip2
+    cargo component check --target wasm32-wasip2
 
 # Build the WebAssembly component
 build:
-    cargo build --target wasm32-wasip2
+    cargo component build --target wasm32-wasip2
 
 # Build the component in release mode
 build-release:
-    cargo build --target wasm32-wasip2 --release
+    cargo component build --target wasm32-wasip2 --release
 
 # Clean the build artifacts
 clean:
