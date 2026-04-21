@@ -1,6 +1,4 @@
 package component:newspenguin-rss-bot;
 
 world bot {
-    include wasi:cli/command@0.2.0;
-    import wasi:http/outgoing-handler@0.2.0;
 }

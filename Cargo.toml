@@ -24,8 +24,3 @@ package = "component:newspenguin-rss-bot"
 [package.metadata.component.target]
 path = "wit"
 world = "bot"
-
-[package.metadata.component.dependencies]
-"wasi:cli" = "0.2.0"
-"wasi:http" = "0.2.0"
-"wasi:io" = "0.2.0"
