@@ -74,7 +74,7 @@ async fn toot(msg: String) -> Result<()> {
     let access_url = access_url.trim().trim_end_matches('/');
 
     let body =
-        format!("status={}&visibility=private", urlencoding::encode(&msg));
+        format!("status={}&visibility=public", urlencoding::encode(&msg));
 
     let headers = vec![
         (

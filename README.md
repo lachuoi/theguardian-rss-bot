@@ -7,7 +7,7 @@ A WASI-based bot that monitors the NewsPenguin RSS feed and posts new articles t
 - **WASI Component**: Built as a WebAssembly component using `cargo-component` and WASI 0.2.
 - **RSS Monitoring**: Fetches and parses RSS feeds (defaulting to NewsPenguin).
 - **Persistence**: Tracks the last processed article date using Turso (libSQL) to avoid duplicate posts.
-- **Mastodon Integration**: Automatically posts new articles to a configured Mastodon account with private visibility by default.
+- **Mastodon Integration**: Automatically posts new articles to a configured Mastodon account with public visibility.
 
 ## Prerequisites
 
