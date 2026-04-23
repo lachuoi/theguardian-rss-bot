@@ -18,16 +18,17 @@ A WASI-based bot that monitors the NewsPenguin RSS feed and posts new articles t
 
 ## Configuration
 
-The bot is configured via environment variables. You can create a `.env` file in the root directory.
+The bot is configured via environment variables. Ensure these are set in your host environment before running.
 
 | Variable | Description | Default / Example |
 |----------|-------------|-------------------|
 | `NEWSPENGUIN_MSTD_ACCESS_TOKEN` | Mastodon API access token | **Required** |
 | `NEWSPENGUIN_MSTD_API_URI` | Mastodon instance URL | `https://mstd.seungjin.net` |
 | `NEWSPENGUIN_RSS_URI` | RSS feed URL | `https://www.newspenguin.com/rss/allArticle.xml` |
-| `LIBSQL_URL` | Turso/libSQL database URL | `libsql://your-db.turso.io` |
-| `LIBSQL_TOKEN` | Turso/libSQL auth token | **Required** |
-| `LIBSQL_KV_TABLE` | Table name for KV storage | `kv_store` |
+| `NEWSPENGUIN_USER_AGENT` | Custom User-Agent header | (Optional) |
+| `TURSO_DATABASE_URL` | Turso/libSQL database URL | `libsql://your-db.turso.io` |
+| `TURSO_AUTH_TOKEN` | Turso/libSQL auth token | **Required** |
+| `TURSO_KV_TABLE` | Table name for KV storage | `lachuoi_kv_store` |
 
 ## Usage
 
@@ -47,13 +48,15 @@ cargo component build --target wasm32-wasip2
 
 ### Running
 
-To run the bot locally using `wasmtime`:
+To run the bot locally using `wasmtime` (ensure environment variables are exported):
 
 ```bash
 just run
+# or
+just run-release
 ```
 
-This command enables the necessary WASI features (HTTP, network) and mounts the current directory for `.env` access.
+This command enables the necessary WASI features (HTTP, network, environment inheritance).
 
 ### Deployment
 

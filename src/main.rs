@@ -8,8 +8,34 @@ use wasi as bindings;
 use wasi_http::http_request;
 
 async fn feed(url: String) -> Result<Channel> {
+    let user_agent = env::var("NEWSPENGUIN_USER_AGENT").unwrap_or_else(|_| {
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0".to_string()
+    });
+
+    let headers = vec![
+        (
+            "User-Agent".to_string(),
+            user_agent.into_bytes(),
+        ),
+        (
+            "Accept".to_string(),
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8".to_string().into_bytes(),
+        ),
+        (
+            "Accept-Language".to_string(),
+            "en-US,en;q=0.9".to_string().into_bytes(),
+        ),
+        (
+            "Cache-Control".to_string(),
+            "max-age=0".to_string().into_bytes(),
+        ),
+        (
+            "Upgrade-Insecure-Requests".to_string(),
+            "1".to_string().into_bytes(),
+        ),
+    ];
     let content =
-        http_request(bindings::http::types::Method::Get, &url, vec![], None)
+        http_request(bindings::http::types::Method::Get, &url, headers, None)
             .await?;
     let channel = Channel::read_from(&content[..])?;
     Ok(channel)
@@ -189,7 +215,6 @@ async fn magic() -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    dotenvy::dotenv().ok();
     println!("Start checking");
 
     futures::executor::block_on(async {

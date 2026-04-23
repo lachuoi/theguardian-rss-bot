@@ -10,21 +10,27 @@ check:
     cargo component check --target wasm32-wasip2
 
 # Build the WebAssembly component
-build:
-    cargo component build --target wasm32-wasip2
+build flags="":
+    cargo component build --target wasm32-wasip2 {{flags}}
 
 # Build the component in release mode
-build-release:
-    cargo component build --target wasm32-wasip2 --release
+build-release: (build "--release")
 
 # Clean the build artifacts
 clean:
     cargo clean
 
-# Run the project (example using wasmtime, adjust if using cargo-component or spin)
-run: build
-    wasmtime run -S http -S inherit-network=y -S allow-ip-name-lookup=y --dir . ./target/wasm32-wasip2/debug/newspenguin-rss-bot.wasm
+# Run the project
+run flags="": (build flags)
+    @wasmtime run \
+        -S http \
+        -S inherit-network=y \
+        -S allow-ip-name-lookup=y \
+        -S inherit-env=y \
+        ./target/wasm32-wasip2/$(if [ "{{flags}}" == "--release" ]; then echo "release"; else echo "debug"; fi)/newspenguin-rss-bot.wasm
+
+
+
 
 # Run the project in release mode
-run-release: build-release
-    wasmtime run -S http -S inherit-network=y -S allow-ip-name-lookup=y --dir . ./target/wasm32-wasip2/release/newspenguin-rss-bot.wasm
+run-release: (run "--release")

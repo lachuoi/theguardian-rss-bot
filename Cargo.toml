@@ -16,7 +16,6 @@ futures = "0.3"
 url = "2.5.4"
 urlencoding = "2"
 wasi = "0.13.1"
-dotenvy = "0.15.7"
 
 [package.metadata.component]
 package = "component:newspenguin-rss-bot"
