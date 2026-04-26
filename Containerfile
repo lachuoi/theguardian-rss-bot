@@ -20,16 +20,16 @@ COPY . .
 # Build the release binary
 RUN cargo component build --release --target wasm32-wasip2
 
-RUN chmod +x /usr/src/app/target/wasm32-wasip2/release/newspenguin-rss-bot.wasm
+RUN chmod +x /usr/src/app/target/wasm32-wasip2/release/theguardian-rss-bot.wasm
 
 # Stage 2: Create the WASM OCI image
 # We use 'scratch' to keep the image size minimal and standard for WASM OCI runtimes
 FROM scratch
 
 # Copy the built WASM component to the root
-COPY --from=builder /usr/src/app/target/wasm32-wasip2/release/newspenguin-rss-bot.wasm /newspenguin-rss-bot.wasm
+COPY --from=builder /usr/src/app/target/wasm32-wasip2/release/theguardian-rss-bot.wasm /theguardian-rss-bot.wasm
 
 
 # Set the entrypoint to the WASM file. 
 # OCI-compliant WASM runtimes (like wasmtime, crun, etc.) will use this.
-ENTRYPOINT ["/newspenguin-rss-bot.wasm"]
+ENTRYPOINT ["/theguardian-rss-bot.wasm"]

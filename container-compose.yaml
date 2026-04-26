@@ -1,8 +1,7 @@
 version: "3"
 services:
-  newspenguin-rss-bot:
-    container_name: "newspenguin-rss-bot"
-    image: "newspenguin-rss-bot"
+  theguardian-rss-bot:
+    container_name: "theguardian-rss-bot"
+    image: "theguardian-rss-bot"
     env_file: .env
     restart: always
-

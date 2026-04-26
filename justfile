@@ -27,7 +27,7 @@ run flags="": (build flags)
         -S inherit-network=y \
         -S allow-ip-name-lookup=y \
         -S inherit-env=y \
-        ./target/wasm32-wasip2/$(if [ "{{flags}}" == "--release" ]; then echo "release"; else echo "debug"; fi)/newspenguin-rss-bot.wasm
+        ./target/wasm32-wasip2/$(if [ "{{flags}}" == "--release" ]; then echo "release"; else echo "debug"; fi)/theguardian-rss-bot.wasm
 
 
 

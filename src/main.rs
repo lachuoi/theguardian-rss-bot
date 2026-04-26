@@ -16,7 +16,7 @@ use wasi as bindings;
 use wasi_http::http_request;
 
 async fn feed(url: String) -> Result<Channel> {
-    let user_agent = env::var("NEWSPENGUIN_USER_AGENT").unwrap_or_else(|_| {
+    let user_agent = env::var("THEGUARDIAN_USER_AGENT").unwrap_or_else(|_| {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0".to_string()
     });
 
@@ -62,7 +62,7 @@ fn parse_date(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
         return Some(dt.with_timezone(&chrono::Utc));
     }
 
-    // 3. Try naive format %Y-%m-%d %H:%M:%S (Treat as UTC for DB compatibility)
+    // 3. Try naive format %Y-%m-%d %H:%M:%S (Treat as UTC)
     if let Ok(ndt) =
         chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
     {
@@ -82,28 +82,15 @@ fn parse_date(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
 }
 
 fn parse_rss_date(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-    let s = s.trim();
-    // For NewsPenguin RSS, naive strings are KST
-    if let Ok(ndt) =
-        chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
-    {
-        if let Some(kst) = chrono::FixedOffset::east_opt(9 * 3600) {
-            use chrono::TimeZone;
-            return kst
-                .from_local_datetime(&ndt)
-                .single()
-                .map(|dt| dt.with_timezone(&chrono::Utc));
-        }
-    }
     parse_date(s)
 }
 
 async fn toot(msg: String) -> Result<()> {
-    let access_token = env::var("NEWSPENGUIN_MSTD_ACCESS_TOKEN").expect(
-        "You must set the NEWSPENGUIN_MSTD_ACCESS_TOKEN environment var!",
+    let access_token = env::var("THEGUARDIAN_MSTD_ACCESS_TOKEN").expect(
+        "You must set the THEGUARDIAN_MSTD_ACCESS_TOKEN environment var!",
     );
     let access_token = access_token.trim();
-    let access_url = env::var("NEWSPENGUIN_MSTD_API_URI")
+    let access_url = env::var("THEGUARDIAN_MSTD_API_URI")
         .unwrap_or_else(|_| "https://mstd.seungjin.net".to_string());
     let access_url = access_url.trim().trim_end_matches('/');
 
@@ -121,7 +108,7 @@ async fn toot(msg: String) -> Result<()> {
         ),
         (
             "User-Agent".to_string(),
-            "newspenguin-rss-bot/0.1.0".to_string().into_bytes(),
+            "theguardian-rss-bot/0.1.0".to_string().into_bytes(),
         ),
     ];
 
@@ -171,17 +158,56 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
             .map(|dt| dt.to_rfc2822())
             .unwrap_or_else(|| i.pub_date.clone().unwrap_or_default());
 
-        let mut description = i.description.clone().unwrap_or_default();
-        if description.chars().count() > 300 {
-            description =
-                description.chars().take(300).collect::<String>() + "...";
+        let description_html = i.description.clone().unwrap_or_default();
+        let mut description = html2text::config::plain()
+            .string_from_read(description_html.as_bytes(), 1000)?;
+        description = description.trim().to_string();
+        description = description.replace("Continue reading...", "").trim().to_string();
+        description = description.replace("Read more...", "").trim().to_string();
+
+        description = description
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let link = i.link.clone().unwrap_or_default();
+        let mut hashtags: Vec<String> = i
+            .categories
+            .iter()
+            .map(|c| format!("#{}", c.name.replace(' ', "")))
+            .filter(|t| t.len() > 1)
+            .take(5)
+            .collect();
+        hashtags.push("#TheGuardian".to_string());
+        let hashtags_str = hashtags.join(" ");
+
+        // Calculate overhead (newlines and other separators)
+        // format!("%s\n\n%s\n\n%s\n\n%s\n(%s)") -> 4 * 2 = 8 + 2 (for parens) = 10 chars
+        let overhead_len = 10;
+        let non_desc_len = title.chars().count()
+            + link.chars().count()
+            + hashtags_str.chars().count()
+            + pub_date_display.chars().count()
+            + overhead_len;
+
+        let max_desc_len = if non_desc_len < 500 {
+            500 - non_desc_len
+        } else {
+            0
+        };
+
+        if description.chars().count() > max_desc_len {
+            let truncate_to = max_desc_len.saturating_sub(3);
+            description = description.chars().take(truncate_to).collect::<String>() + "...";
         }
 
         let msg: String = format!(
-            "{}:\n{}\n{}\n({})",
+            "{}\n\n{}\n\n{}\n\n{}\n({})",
             title,
             description,
-            i.link.unwrap_or_default(),
+            link,
+            hashtags_str,
             pub_date_display
         );
         println!("Posting new article: {} ({})", title, pub_date_display);
@@ -191,14 +217,14 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
 }
 
 async fn magic() -> Result<()> {
-    let rss_url = env::var("NEWSPENGUIN_RSS_URI").unwrap_or_else(|_| {
-        "https://www.newspenguin.com/rss/allArticle.xml".to_string()
+    let rss_url = env::var("THEGUARDIAN_RSS_URI").unwrap_or_else(|_| {
+        "https://www.theguardian.com/world/rss".to_string()
     });
     let rss_url = rss_url.trim();
     println!("Fetching RSS from: {}", rss_url);
     let a = feed(rss_url.to_string()).await?;
 
-    let kv_key = "newspenguin-rss.last_build_date";
+    let kv_key = "theguardian-rss.last_build_date";
     let saved_date_result = db::get_kv(kv_key).await;
     let saved_date = match saved_date_result {
         Ok(val) => val,
@@ -234,3 +260,4 @@ fn main() -> Result<()> {
     println!("Done");
     Ok(())
 }
+
