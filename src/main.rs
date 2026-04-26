@@ -94,8 +94,15 @@ async fn toot(msg: String) -> Result<()> {
         .unwrap_or_else(|_| "https://mstd.seungjin.net".to_string());
     let access_url = access_url.trim().trim_end_matches('/');
 
-    let body =
-        format!("status={}&visibility=public", urlencoding::encode(&msg));
+    let body_json = serde_json::json!({
+        "status": msg,
+        "visibility": "public"
+    });
+    let body = serde_json::to_vec(&body_json)?;
+    let body_len = body.len().to_string();
+
+    println!("Sending to Mastodon ({} bytes, {} chars):", body_len, msg.chars().count());
+    // println!("{}", msg); // Optional: print full message for debug
 
     let headers = vec![
         (
@@ -104,11 +111,19 @@ async fn toot(msg: String) -> Result<()> {
         ),
         (
             "Content-Type".to_string(),
-            "application/x-www-form-urlencoded".to_string().into_bytes(),
+            "application/json".to_string().into_bytes(),
+        ),
+        (
+            "Accept".to_string(),
+            "application/json".to_string().into_bytes(),
+        ),
+        (
+            "Content-Length".to_string(),
+            body_len.into_bytes(),
         ),
         (
             "User-Agent".to_string(),
-            "theguardian-rss-bot/0.1.0".to_string().into_bytes(),
+            "theguardian-rss-bot/1.0".to_string().into_bytes(),
         ),
     ];
 
@@ -118,7 +133,7 @@ async fn toot(msg: String) -> Result<()> {
         bindings::http::types::Method::Post,
         &url,
         headers,
-        Some(body.into_bytes()),
+        Some(body),
     )
     .await?;
 
@@ -182,11 +197,14 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
         hashtags.push("#TheGuardian".to_string());
         let hashtags_str = hashtags.join(" ");
 
+        // Mastodon counts URLs as 23 characters
+        let mastodon_link_len = 23;
+
         // Calculate overhead (newlines and other separators)
-        // format!("%s\n\n%s\n\n%s\n\n%s\n(%s)") -> 4 * 2 = 8 + 2 (for parens) = 10 chars
-        let overhead_len = 10;
+        // format!("%s\n%s\n%s\n%s\n(%s)") -> 4 newlines + 2 parens = 6 chars
+        let overhead_len = 6;
         let non_desc_len = title.chars().count()
-            + link.chars().count()
+            + mastodon_link_len
             + hashtags_str.chars().count()
             + pub_date_display.chars().count()
             + overhead_len;
@@ -203,7 +221,7 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
         }
 
         let msg: String = format!(
-            "{}\n\n{}\n\n{}\n\n{}\n({})",
+            "{}\n{}\n{}\n{}\n({})",
             title,
             description,
             link,
