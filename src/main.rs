@@ -101,7 +101,14 @@ async fn toot(msg: String) -> Result<()> {
     let body = serde_json::to_vec(&body_json)?;
     let body_len = body.len().to_string();
 
-    println!("Sending to Mastodon ({} bytes, {} chars):", body_len, msg.chars().count());
+    let mastodon_char_count = msg.chars().count();
+    // Note: This log doesn't account for Mastodon's URL shortening which counts all URLs as 23 chars.
+    // The validation logic in showme handles that.
+    println!(
+        "Sending to Mastodon ({} bytes, {} chars):",
+        body_len,
+        mastodon_char_count
+    );
     // println!("{}", msg); // Optional: print full message for debug
 
     let headers = vec![
@@ -117,10 +124,7 @@ async fn toot(msg: String) -> Result<()> {
             "Accept".to_string(),
             "application/json".to_string().into_bytes(),
         ),
-        (
-            "Content-Length".to_string(),
-            body_len.into_bytes(),
-        ),
+        ("Content-Length".to_string(), body_len.into_bytes()),
         (
             "User-Agent".to_string(),
             "theguardian-rss-bot/1.0".to_string().into_bytes(),
@@ -149,7 +153,13 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
     );
 
     let mut items = c.items;
-    items.reverse(); // Process oldest items first
+    // Sort items by publication date ascending (oldest first)
+    items.sort_by_key(|i| {
+        i.pub_date
+            .as_ref()
+            .and_then(|s| parse_rss_date(s))
+            .unwrap_or(chrono::DateTime::<chrono::Utc>::MIN_UTC)
+    });
 
     for i in items {
         let pub_date = i.pub_date.as_ref().and_then(|s| parse_rss_date(s));
@@ -173,18 +183,33 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
             .map(|dt| dt.to_rfc2822())
             .unwrap_or_else(|| i.pub_date.clone().unwrap_or_default());
 
-        let description_html = i.description.clone().unwrap_or_default();
+        let description_html = i
+            .description
+            .clone()
+            .unwrap_or_default()
+            .replace("<p></p>\r\n", "")
+            .replace("<p></p>\n", "")
+            .replace("<p></p>", "");
+
+        // Remove <a> tags (but keep content if we were using a more complex tool,
+        // but here we just want to ensure links and images are gone).
+        // html2text::config::plain() already does a good job, but let's be more explicit if needed.
+        // The user wants to remove "html link or image tag".
+
         let mut description = html2text::config::plain()
             .string_from_read(description_html.as_bytes(), 1000)?;
         description = description.trim().to_string();
-        description = description.replace("Continue reading...", "").trim().to_string();
-        description = description.replace("Read more...", "").trim().to_string();
 
         description = description
             .lines()
-            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.trim())
+            .filter(|l| {
+                !l.is_empty()
+                    && !l.contains("Continue reading...")
+                    && !l.contains("Read more...")
+            })
             .collect::<Vec<_>>()
-            .join("\n");
+            .join(" ");
 
         let link = i.link.clone().unwrap_or_default();
         let mut hashtags: Vec<String> = i
@@ -201,32 +226,28 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
         let mastodon_link_len = 23;
 
         // Calculate overhead (newlines and other separators)
-        // format!("%s\n%s\n%s\n%s\n(%s)") -> 4 newlines + 2 parens = 6 chars
-        let overhead_len = 6;
+        // format!("%s\n\n%s\n\n%s\n%s\n(%s)") -> 6 newlines + 2 parens = 8 chars
+        let overhead_len = 8;
+        let mastodon_limit: usize = 490;
+
         let non_desc_len = title.chars().count()
             + mastodon_link_len
             + hashtags_str.chars().count()
             + pub_date_display.chars().count()
             + overhead_len;
 
-        let max_desc_len = if non_desc_len < 500 {
-            500 - non_desc_len
-        } else {
-            0
-        };
+        let max_desc_len = mastodon_limit.saturating_sub(non_desc_len);
 
         if description.chars().count() > max_desc_len {
             let truncate_to = max_desc_len.saturating_sub(3);
-            description = description.chars().take(truncate_to).collect::<String>() + "...";
+            description =
+                description.chars().take(truncate_to).collect::<String>()
+                    + "...";
         }
 
         let msg: String = format!(
-            "{}\n{}\n{}\n{}\n({})",
-            title,
-            description,
-            link,
-            hashtags_str,
-            pub_date_display
+            "{}\n\n{}\n\n{}\n{}\n({})",
+            title, description, link, hashtags_str, pub_date_display
         );
         println!("Posting new article: {} ({})", title, pub_date_display);
         toot(msg).await?;
@@ -278,4 +299,3 @@ fn main() -> Result<()> {
     println!("Done");
     Ok(())
 }
-
