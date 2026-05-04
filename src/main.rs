@@ -11,6 +11,7 @@ mod wasi_http;
 
 use anyhow::Result;
 use rss::Channel;
+use std::collections::HashSet;
 use std::env;
 use wasi as bindings;
 use wasi_http::http_request;
@@ -106,8 +107,7 @@ async fn toot(msg: String) -> Result<()> {
     // The validation logic in showme handles that.
     println!(
         "Sending to Mastodon ({} bytes, {} chars):",
-        body_len,
-        mastodon_char_count
+        body_len, mastodon_char_count
     );
     // println!("{}", msg); // Optional: print full message for debug
 
@@ -145,12 +145,35 @@ async fn toot(msg: String) -> Result<()> {
     Ok(())
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct PublishedItem {
+    title: String,
+    posted_at: i64, // Unix timestamp
+}
+
 async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
     let saved_date = saved_date_str.as_ref().and_then(|s| parse_date(s));
     println!(
         "Comparing with saved date (UTC): {:?}",
         saved_date.map(|dt| dt.to_rfc3339())
     );
+
+    let kv_titles_key = "theguardian-rss.published_titles";
+    let mut published_items: Vec<PublishedItem> = match db::get_kv(kv_titles_key).await {
+        Ok(Some(json_str)) => serde_json::from_str(&json_str).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+
+    // Cleanup: Remove items older than 7 days
+    let seven_days_ago = chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::days(7))
+        .unwrap()
+        .timestamp();
+    published_items.retain(|item| item.posted_at > seven_days_ago);
+
+    let mut published_titles: HashSet<String> =
+        published_items.iter().map(|i| i.title.clone()).collect();
+    let initial_titles_count = published_titles.len();
 
     let mut items = c.items;
     // Sort items by publication date ascending (oldest first)
@@ -160,6 +183,8 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
             .and_then(|s| parse_rss_date(s))
             .unwrap_or(chrono::DateTime::<chrono::Utc>::MIN_UTC)
     });
+
+    let mut seen_in_batch = HashSet::new();
 
     for i in items {
         let pub_date = i.pub_date.as_ref().and_then(|s| parse_rss_date(s));
@@ -179,6 +204,22 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
         }
 
         let title = i.title.clone().unwrap_or_default();
+        if title.is_empty() {
+            continue;
+        }
+
+        // Deduplicate within this batch
+        if !seen_in_batch.insert(title.clone()) {
+            println!("Skipping duplicate title in current batch: {}", title);
+            continue;
+        }
+
+        // Persistent deduplication check
+        if published_titles.contains(&title) {
+            println!("Skipping already posted title: {}", title);
+            continue;
+        }
+
         let pub_date_display = pub_date
             .map(|dt| dt.to_rfc2822())
             .unwrap_or_else(|| i.pub_date.clone().unwrap_or_default());
@@ -190,11 +231,6 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
             .replace("<p></p>\r\n", "")
             .replace("<p></p>\n", "")
             .replace("<p></p>", "");
-
-        // Remove <a> tags (but keep content if we were using a more complex tool,
-        // but here we just want to ensure links and images are gone).
-        // html2text::config::plain() already does a good job, but let's be more explicit if needed.
-        // The user wants to remove "html link or image tag".
 
         let mut description = html2text::config::plain()
             .string_from_read(description_html.as_bytes(), 1000)?;
@@ -251,7 +287,23 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
         );
         println!("Posting new article: {} ({})", title, pub_date_display);
         toot(msg).await?;
+
+        // Add to our list of published items
+        published_items.push(PublishedItem {
+            title: title.clone(),
+            posted_at: chrono::Utc::now().timestamp(),
+        });
+        published_titles.insert(title);
     }
+
+    // Save updated titles list back to DB if changed (or cleaned up)
+    if published_titles.len() != initial_titles_count
+        || published_items.len() < initial_titles_count
+    {
+        let json_str = serde_json::to_string(&published_items)?;
+        db::set_kv(kv_titles_key, &json_str).await?;
+    }
+
     Ok(())
 }
 
@@ -299,3 +351,4 @@ fn main() -> Result<()> {
     println!("Done");
     Ok(())
 }
+
