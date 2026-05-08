@@ -62,7 +62,7 @@ async fn execute_sql(
         requests: vec![
             Request {
                 req_type: "execute".to_string(),
-                stmt: Stmt { sql, args },
+                stmt: Stmt { sql: sql.clone(), args },
             },
             Request {
                 req_type: "close".to_string(),
@@ -99,15 +99,16 @@ async fn execute_sql(
     let result = resp
         .results
         .get(0)
-        .ok_or_else(|| anyhow::anyhow!("No results in pipeline response from {}", full_url))?;
+        .ok_or_else(|| anyhow::anyhow!("No results in pipeline response for SQL: {}", sql))?;
 
     if let Some(error) = result.get("error") {
-        return Err(anyhow::anyhow!("Turso error at {}: {}", full_url, error));
+        return Err(anyhow::anyhow!("Turso error for SQL '{}': {}", sql, error));
     }
 
     let response = result
         .get("response")
-        .ok_or_else(|| anyhow::anyhow!("No response in pipeline result from {}", full_url))?;
+        .ok_or_else(|| anyhow::anyhow!("No response in pipeline result for SQL: {}", sql))?;
+    
     Ok(response.clone())
 }
 
@@ -133,14 +134,27 @@ pub async fn get_kv(key: &str) -> Result<Option<String>> {
     .await?;
 
     // Try multiple pointers as Turso API versions vary
-    let val = resp.pointer("/result/rows/0/0/value")
-        .or_else(|| resp.pointer("/result/rows/0/0"));
-    
-    match val {
-        Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
-        Some(v) => Ok(Some(v.to_string().trim_matches('"').to_string())),
-        _ => Ok(None),
+    // First try standard rows array structure
+    if let Some(rows) = resp.pointer("/result/rows") {
+        if let Some(first_row) = rows.get(0) {
+            if let Some(first_col) = first_row.get(0) {
+                // If it's an object with a "value" field (Turso Typed JSON)
+                if let Some(val) = first_col.get("value") {
+                    if let Some(s) = val.as_str() {
+                        return Ok(Some(s.to_string()));
+                    }
+                    return Ok(Some(val.to_string()));
+                }
+                // If it's a direct value
+                if let Some(s) = first_col.as_str() {
+                    return Ok(Some(s.to_string()));
+                }
+                return Ok(Some(first_col.to_string()));
+            }
+        }
     }
+    
+    Ok(None)
 }
 
 pub async fn set_kv(key: &str, value: &str) -> Result<()> {
@@ -148,14 +162,16 @@ pub async fn set_kv(key: &str, value: &str) -> Result<()> {
     let table_name = table_name_raw.trim();
     let table_name = if table_name.is_empty() { "lachuoi_kv_store" } else { table_name };
 
-    // Ensure table exists
+    println!("Setting KV in Turso: {} = {}", key, value);
+
+    // Using separate calls for clarity in debugging, but checking all results
     let _ = execute_sql(
         format!("CREATE TABLE IF NOT EXISTS {} (key TEXT PRIMARY KEY, value TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)", table_name),
         vec![],
     )
     .await?;
 
-    execute_sql(
+    let _ = execute_sql(
         format!("INSERT INTO {} (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP", table_name),
         vec![
             Value {
@@ -170,5 +186,6 @@ pub async fn set_kv(key: &str, value: &str) -> Result<()> {
     )
     .await?;
     
+    println!("KV set successfully: {}", key);
     Ok(())
 }

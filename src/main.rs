@@ -248,27 +248,19 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
             .join(" ");
 
         let link = i.link.clone().unwrap_or_default();
-        let mut hashtags: Vec<String> = i
-            .categories
-            .iter()
-            .map(|c| format!("#{}", c.name.replace(' ', "")))
-            .filter(|t| t.len() > 1)
-            .take(5)
-            .collect();
-        hashtags.push("#TheGuardian".to_string());
-        let hashtags_str = hashtags.join(" ");
+        let hashtag = "#TheGuardian";
 
         // Mastodon counts URLs as 23 characters
         let mastodon_link_len = 23;
 
         // Calculate overhead (newlines and other separators)
-        // format!("%s\n\n%s\n\n%s\n%s\n(%s)") -> 6 newlines + 2 parens = 8 chars
-        let overhead_len = 8;
+        // format!("%s\n\n%s %s\n\n%s\n\n(%s)") -> 6 newlines + 1 space + 2 parens = 9 chars
+        let overhead_len = 9;
         let mastodon_limit: usize = 490;
 
         let non_desc_len = title.chars().count()
             + mastodon_link_len
-            + hashtags_str.chars().count()
+            + hashtag.chars().count()
             + pub_date_display.chars().count()
             + overhead_len;
 
@@ -282,18 +274,25 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
         }
 
         let msg: String = format!(
-            "{}\n\n{}\n\n{}\n{}\n({})",
-            title, description, link, hashtags_str, pub_date_display
+            "{}\n\n{} {}\n\n{}\n\n({})",
+            title, description, hashtag, link, pub_date_display
         );
         println!("Posting new article: {} ({})", title, pub_date_display);
-        toot(msg).await?;
-
-        // Add to our list of published items
-        published_items.push(PublishedItem {
-            title: title.clone(),
-            posted_at: chrono::Utc::now().timestamp(),
-        });
-        published_titles.insert(title);
+        
+        match toot(msg).await {
+            Ok(_) => {
+                // Add to our list of published items only if posting succeeded
+                published_items.push(PublishedItem {
+                    title: title.clone(),
+                    posted_at: chrono::Utc::now().timestamp(),
+                });
+                published_titles.insert(title);
+            }
+            Err(e) => {
+                eprintln!("Failed to post article '{}': {:?}", title, e);
+                // We continue to next item instead of returning error
+            }
+        }
     }
 
     // Save updated titles list back to DB if changed (or cleaned up)
@@ -301,6 +300,7 @@ async fn showme(c: Channel, saved_date_str: Option<String>) -> Result<()> {
         || published_items.len() < initial_titles_count
     {
         let json_str = serde_json::to_string(&published_items)?;
+        println!("Updating published titles list in DB ({} items)", published_items.len());
         db::set_kv(kv_titles_key, &json_str).await?;
     }
 
@@ -318,7 +318,10 @@ async fn magic() -> Result<()> {
     let kv_key = "theguardian-rss.last_build_date";
     let saved_date_result = db::get_kv(kv_key).await;
     let saved_date = match saved_date_result {
-        Ok(val) => val,
+        Ok(val) => {
+            println!("Successfully retrieved saved date from DB: {:?}", val);
+            val
+        }
         Err(e) => {
             eprintln!(
                 "Warning: Failed to retrieve saved date from DB: {:?}",
@@ -327,14 +330,14 @@ async fn magic() -> Result<()> {
             None
         }
     };
-    println!("Retrieved saved date from DB: {:?}", saved_date);
 
     showme(a, saved_date).await?;
 
     // Save as "YYYY-MM-DD HH:MM:SS" in UTC
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    println!("Updating saved date in DB to current UTC: {}", now);
+    println!("Preparing to update saved date in DB to current UTC: {}", now);
     db::set_kv(kv_key, &now).await?;
+    println!("Database update command for date completed.");
 
     Ok(())
 }
